@@ -171,18 +171,18 @@ Summary: The Linux kernel
 #  the --with-release option overrides this setting.)
 %define debugbuildsenabled 1
 # define buildid .local
-%define specrpmversion 6.4.14
-%define specversion 6.4.14
+%define specrpmversion 6.4.15
+%define specversion 6.4.15
 %define patchversion 6.4
 %define pkgrelease 200
 %define kversion 6
-%define tarfile_release 6.4.14
+%define tarfile_release 6.4.15
 # This is needed to do merge window version magic
 %define patchlevel 4
 # This allows pkg_release to have configurable %%{?dist} tag
 %define specrelease 200%{?buildid}%{?dist}
 # This defines the kabi tarball version
-%define kabiversion 6.4.14
+%define kabiversion 6.4.15
 
 # If this variable is set to 1, a bpf selftests build failure will cause a
 # fatal kernel package build error
@@ -3817,6 +3817,11 @@ fi\
 #
 #
 %changelog
+* Wed Sep 06 2023 Augusto Caringi <acaringi@redhat.com> [6.4.15-0]
+- Add TPM bug to BugsFixed (Justin M. Forbes)
+- tpm: Enable hwrng only for Pluton on AMD CPUs (Jarkko Sakkinen)
+- Linux v6.4.15
+
 * Sat Sep 02 2023 Justin M. Forbes <jforbes@fedoraproject.org> [6.4.14-0]
 - Add bug fixed by 6.4.14 (Justin M. Forbes)
 - erofs: ensure that the post-EOF tails are all zeroed (Gao Xiang)
