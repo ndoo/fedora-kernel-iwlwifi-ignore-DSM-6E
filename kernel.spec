@@ -171,18 +171,18 @@ Summary: The Linux kernel
 #  the --with-release option overrides this setting.)
 %define debugbuildsenabled 1
 # define buildid .local
-%define specrpmversion 6.4.15
-%define specversion 6.4.15
+%define specrpmversion 6.4.16
+%define specversion 6.4.16
 %define patchversion 6.4
 %define pkgrelease 200
 %define kversion 6
-%define tarfile_release 6.4.15
+%define tarfile_release 6.4.16
 # This is needed to do merge window version magic
 %define patchlevel 4
 # This allows pkg_release to have configurable %%{?dist} tag
 %define specrelease 200%{?buildid}%{?dist}
 # This defines the kabi tarball version
-%define kabiversion 6.4.15
+%define kabiversion 6.4.16
 
 # If this variable is set to 1, a bpf selftests build failure will cause a
 # fatal kernel package build error
@@ -3817,6 +3817,13 @@ fi\
 #
 #
 %changelog
+* Wed Sep 13 2023 Augusto Caringi <acaringi@redhat.com> [6.4.16-0]
+- Config change required for build (CONFIG_VIDEO_CAMERA_SENSOR) (Augusto Caringi)
+- Add nvme bug to BugsFixed for 6.4.16 (Justin M. Forbes)
+- Revert "misc: rtsx: judge ASPM Mode to set PETXCFG Reg" (Justin M. Forbes)
+- Fix RHeL config for 6.4.16 (Justin M. Forbes)
+- Linux v6.4.16
+
 * Wed Sep 06 2023 Augusto Caringi <acaringi@redhat.com> [6.4.15-0]
 - Add TPM bug to BugsFixed (Justin M. Forbes)
 - tpm: Enable hwrng only for Pluton on AMD CPUs (Jarkko Sakkinen)

@@ -1,3 +1,6 @@
+"https://gitlab.com/cki-project/kernel-ark/-/commit"/70526bbe245f4197ba74770f8f5c0c4dc4bbb484
+ 70526bbe245f4197ba74770f8f5c0c4dc4bbb484 Revert "misc: rtsx: judge ASPM Mode to set PETXCFG Reg"
+
 "https://gitlab.com/cki-project/kernel-ark/-/commit"/f1d87b42e9ac0ca6233ba1906ddcec6407510018
  f1d87b42e9ac0ca6233ba1906ddcec6407510018 tpm: Enable hwrng only for Pluton on AMD CPUs
 

@@ -12,7 +12,6 @@
  drivers/ata/libahci.c                              |  18 +++
  drivers/char/ipmi/ipmi_dmi.c                       |  15 +++
  drivers/char/ipmi/ipmi_msghandler.c                |  16 ++-
- drivers/char/tpm/tpm_crb.c                         |  33 ++----
  drivers/firmware/efi/Makefile                      |   1 +
  drivers/firmware/efi/efi.c                         | 124 +++++++++++++++------
  drivers/firmware/efi/secureboot.c                  |  38 +++++++
@@ -21,6 +20,12 @@
  drivers/hwtracing/coresight/coresight-etm4x-core.c |  19 ++++
  drivers/input/rmi4/rmi_driver.c                    | 124 ++++++++++++---------
  drivers/iommu/iommu.c                              |  22 ++++
+ drivers/misc/cardreader/rts5227.c                  |   2 +-
+ drivers/misc/cardreader/rts5228.c                  |  18 +++
+ drivers/misc/cardreader/rts5249.c                  |   3 +-
+ drivers/misc/cardreader/rts5260.c                  |  18 +++
+ drivers/misc/cardreader/rts5261.c                  |  18 +++
+ drivers/misc/cardreader/rtsx_pcr.c                 |   5 +-
  drivers/pci/quirks.c                               |  24 ++++
  drivers/usb/core/hub.c                             |   7 ++
  include/linux/efi.h                                |  22 ++--
@@ -38,10 +43,10 @@
  security/lockdown/Kconfig                          |  13 +++
  security/lockdown/lockdown.c                       |   1 +
  security/security.c                                |  12 ++
- 40 files changed, 526 insertions(+), 216 deletions(-)
+ 45 files changed, 576 insertions(+), 197 deletions(-)
 
 diff --git a/Makefile b/Makefile
-index 212d1c7e4a1a..85f5a8b70878 100644
+index 34ea74d74476..9c4feee0aaa9 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -22,6 +22,18 @@ $(if $(filter __%, $(MAKECMDGOALS)), \
@@ -120,10 +125,10 @@ index b0d00032479d..afb9544fb007 100644
  /*
   * DIAG 308 support
 diff --git a/arch/s390/kernel/ipl.c b/arch/s390/kernel/ipl.c
-index f44f70de9661..829255d50d01 100644
+index 9d74b037b3a3..63a827172165 100644
 --- a/arch/s390/kernel/ipl.c
 +++ b/arch/s390/kernel/ipl.c
-@@ -2517,3 +2517,8 @@ int ipl_report_free(struct ipl_report *report)
+@@ -2519,3 +2519,8 @@ int ipl_report_free(struct ipl_report *report)
  }
 
  #endif
@@ -430,57 +435,6 @@ index 186f1fee7534..93e3a76596ff 100644
  	mutex_lock(&ipmi_interfaces_mutex);
  	rv = ipmi_register_driver();
  	mutex_unlock(&ipmi_interfaces_mutex);
-diff --git a/drivers/char/tpm/tpm_crb.c b/drivers/char/tpm/tpm_crb.c
-index 9eb1a1859012..a5dbebb1acfc 100644
---- a/drivers/char/tpm/tpm_crb.c
-+++ b/drivers/char/tpm/tpm_crb.c
-@@ -463,28 +463,6 @@ static bool crb_req_canceled(struct tpm_chip *chip, u8 status)
- 	return (cancel & CRB_CANCEL_INVOKE) == CRB_CANCEL_INVOKE;
- }
-
--static int crb_check_flags(struct tpm_chip *chip)
--{
--	u32 val;
--	int ret;
--
--	ret = crb_request_locality(chip, 0);
--	if (ret)
--		return ret;
--
--	ret = tpm2_get_tpm_pt(chip, TPM2_PT_MANUFACTURER, &val, NULL);
--	if (ret)
--		goto release;
--
--	if (val == 0x414D4400U /* AMD */)
--		chip->flags |= TPM_CHIP_FLAG_HWRNG_DISABLED;
--
--release:
--	crb_relinquish_locality(chip, 0);
--
--	return ret;
--}
--
- static const struct tpm_class_ops tpm_crb = {
- 	.flags = TPM_OPS_AUTO_STARTUP,
- 	.status = crb_status,
-@@ -826,9 +804,14 @@ static int crb_acpi_add(struct acpi_device *device)
- 	if (rc)
- 		goto out;
-
--	rc = crb_check_flags(chip);
--	if (rc)
--		goto out;
-+#ifdef CONFIG_X86
-+	/* A quirk for https://www.amd.com/en/support/kb/faq/pa-410 */
-+	if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD &&
-+	    priv->sm != ACPI_TPM2_COMMAND_BUFFER_WITH_PLUTON) {
-+		dev_info(dev, "Disabling hwrng\n");
-+		chip->flags |= TPM_CHIP_FLAG_HWRNG_DISABLED;
-+	}
-+#endif /* CONFIG_X86 */
-
- 	rc = tpm_chip_register(chip);
-
 diff --git a/drivers/firmware/efi/Makefile b/drivers/firmware/efi/Makefile
 index b51f2a4c821e..be31d32aba53 100644
 --- a/drivers/firmware/efi/Makefile
@@ -1064,7 +1018,7 @@ index 258d5fe3d395..f7298e3dc8f3 100644
  	if (data->f01_container->dev.driver) {
  		/* Driver already bound, so enable ATTN now. */
 diff --git a/drivers/iommu/iommu.c b/drivers/iommu/iommu.c
-index f1dcfa3f1a1b..62fa35de72ac 100644
+index 88e7154f846d..64c31fa51172 100644
 --- a/drivers/iommu/iommu.c
 +++ b/drivers/iommu/iommu.c
 @@ -8,6 +8,7 @@
@@ -1103,6 +1057,174 @@ index f1dcfa3f1a1b..62fa35de72ac 100644
  /*
   * Changes the default domain of an iommu group
   *
+diff --git a/drivers/misc/cardreader/rts5227.c b/drivers/misc/cardreader/rts5227.c
+index 3dae5e3a1697..d676cf63a966 100644
+--- a/drivers/misc/cardreader/rts5227.c
++++ b/drivers/misc/cardreader/rts5227.c
+@@ -195,7 +195,7 @@ static int rts5227_extra_init_hw(struct rtsx_pcr *pcr)
+ 		}
+ 	}
+
+-	if (option->force_clkreq_0 && pcr->aspm_mode == ASPM_MODE_CFG)
++	if (option->force_clkreq_0)
+ 		rtsx_pci_add_cmd(pcr, WRITE_REG_CMD, PETXCFG,
+ 				FORCE_CLKREQ_DELINK_MASK, FORCE_CLKREQ_LOW);
+ 	else
+diff --git a/drivers/misc/cardreader/rts5228.c b/drivers/misc/cardreader/rts5228.c
+index f4ab09439da7..cfebad51d1d8 100644
+--- a/drivers/misc/cardreader/rts5228.c
++++ b/drivers/misc/cardreader/rts5228.c
+@@ -435,10 +435,17 @@ static void rts5228_init_from_cfg(struct rtsx_pcr *pcr)
+ 			option->ltr_enabled = false;
+ 		}
+ 	}
++
++	if (rtsx_check_dev_flag(pcr, ASPM_L1_1_EN | ASPM_L1_2_EN
++				| PM_L1_1_EN | PM_L1_2_EN))
++		option->force_clkreq_0 = false;
++	else
++		option->force_clkreq_0 = true;
+ }
+
+ static int rts5228_extra_init_hw(struct rtsx_pcr *pcr)
+ {
++	struct rtsx_cr_option *option = &pcr->option;
+
+ 	rtsx_pci_write_register(pcr, RTS5228_AUTOLOAD_CFG1,
+ 			CD_RESUME_EN_MASK, CD_RESUME_EN_MASK);
+@@ -469,6 +476,17 @@ static int rts5228_extra_init_hw(struct rtsx_pcr *pcr)
+ 	else
+ 		rtsx_pci_write_register(pcr, PETXCFG, 0x30, 0x00);
+
++	/*
++	 * If u_force_clkreq_0 is enabled, CLKREQ# PIN will be forced
++	 * to drive low, and we forcibly request clock.
++	 */
++	if (option->force_clkreq_0)
++		rtsx_pci_write_register(pcr, PETXCFG,
++				 FORCE_CLKREQ_DELINK_MASK, FORCE_CLKREQ_LOW);
++	else
++		rtsx_pci_write_register(pcr, PETXCFG,
++				 FORCE_CLKREQ_DELINK_MASK, FORCE_CLKREQ_HIGH);
++
+ 	rtsx_pci_write_register(pcr, PWD_SUSPEND_EN, 0xFF, 0xFB);
+
+ 	if (pcr->rtd3_en) {
+diff --git a/drivers/misc/cardreader/rts5249.c b/drivers/misc/cardreader/rts5249.c
+index 47ab72a43256..91d240dd68fa 100644
+--- a/drivers/misc/cardreader/rts5249.c
++++ b/drivers/misc/cardreader/rts5249.c
+@@ -327,11 +327,12 @@ static int rts5249_extra_init_hw(struct rtsx_pcr *pcr)
+ 		}
+ 	}
+
++
+ 	/*
+ 	 * If u_force_clkreq_0 is enabled, CLKREQ# PIN will be forced
+ 	 * to drive low, and we forcibly request clock.
+ 	 */
+-	if (option->force_clkreq_0 && pcr->aspm_mode == ASPM_MODE_CFG)
++	if (option->force_clkreq_0)
+ 		rtsx_pci_write_register(pcr, PETXCFG,
+ 			FORCE_CLKREQ_DELINK_MASK, FORCE_CLKREQ_LOW);
+ 	else
+diff --git a/drivers/misc/cardreader/rts5260.c b/drivers/misc/cardreader/rts5260.c
+index 79b18f6f73a8..9b42b20a3e5a 100644
+--- a/drivers/misc/cardreader/rts5260.c
++++ b/drivers/misc/cardreader/rts5260.c
+@@ -517,10 +517,17 @@ static void rts5260_init_from_cfg(struct rtsx_pcr *pcr)
+ 			option->ltr_enabled = false;
+ 		}
+ 	}
++
++	if (rtsx_check_dev_flag(pcr, ASPM_L1_1_EN | ASPM_L1_2_EN
++				| PM_L1_1_EN | PM_L1_2_EN))
++		option->force_clkreq_0 = false;
++	else
++		option->force_clkreq_0 = true;
+ }
+
+ static int rts5260_extra_init_hw(struct rtsx_pcr *pcr)
+ {
++	struct rtsx_cr_option *option = &pcr->option;
+
+ 	/* Set mcu_cnt to 7 to ensure data can be sampled properly */
+ 	rtsx_pci_write_register(pcr, 0xFC03, 0x7F, 0x07);
+@@ -539,6 +546,17 @@ static int rts5260_extra_init_hw(struct rtsx_pcr *pcr)
+
+ 	rts5260_init_hw(pcr);
+
++	/*
++	 * If u_force_clkreq_0 is enabled, CLKREQ# PIN will be forced
++	 * to drive low, and we forcibly request clock.
++	 */
++	if (option->force_clkreq_0)
++		rtsx_pci_write_register(pcr, PETXCFG,
++				 FORCE_CLKREQ_DELINK_MASK, FORCE_CLKREQ_LOW);
++	else
++		rtsx_pci_write_register(pcr, PETXCFG,
++				 FORCE_CLKREQ_DELINK_MASK, FORCE_CLKREQ_HIGH);
++
+ 	rtsx_pci_write_register(pcr, pcr->reg_pm_ctrl3, 0x10, 0x00);
+
+ 	return 0;
+diff --git a/drivers/misc/cardreader/rts5261.c b/drivers/misc/cardreader/rts5261.c
+index 94af6bf8a25a..b1e76030cafd 100644
+--- a/drivers/misc/cardreader/rts5261.c
++++ b/drivers/misc/cardreader/rts5261.c
+@@ -498,10 +498,17 @@ static void rts5261_init_from_cfg(struct rtsx_pcr *pcr)
+ 			option->ltr_enabled = false;
+ 		}
+ 	}
++
++	if (rtsx_check_dev_flag(pcr, ASPM_L1_1_EN | ASPM_L1_2_EN
++				| PM_L1_1_EN | PM_L1_2_EN))
++		option->force_clkreq_0 = false;
++	else
++		option->force_clkreq_0 = true;
+ }
+
+ static int rts5261_extra_init_hw(struct rtsx_pcr *pcr)
+ {
++	struct rtsx_cr_option *option = &pcr->option;
+ 	u32 val;
+
+ 	rtsx_pci_write_register(pcr, RTS5261_AUTOLOAD_CFG1,
+@@ -547,6 +554,17 @@ static int rts5261_extra_init_hw(struct rtsx_pcr *pcr)
+ 	else
+ 		rtsx_pci_write_register(pcr, PETXCFG, 0x30, 0x00);
+
++	/*
++	 * If u_force_clkreq_0 is enabled, CLKREQ# PIN will be forced
++	 * to drive low, and we forcibly request clock.
++	 */
++	if (option->force_clkreq_0)
++		rtsx_pci_write_register(pcr, PETXCFG,
++				 FORCE_CLKREQ_DELINK_MASK, FORCE_CLKREQ_LOW);
++	else
++		rtsx_pci_write_register(pcr, PETXCFG,
++				 FORCE_CLKREQ_DELINK_MASK, FORCE_CLKREQ_HIGH);
++
+ 	rtsx_pci_write_register(pcr, PWD_SUSPEND_EN, 0xFF, 0xFB);
+
+ 	if (pcr->rtd3_en) {
+diff --git a/drivers/misc/cardreader/rtsx_pcr.c b/drivers/misc/cardreader/rtsx_pcr.c
+index a3f4b52bb159..32b7783e9d4f 100644
+--- a/drivers/misc/cardreader/rtsx_pcr.c
++++ b/drivers/misc/cardreader/rtsx_pcr.c
+@@ -1326,11 +1326,8 @@ static int rtsx_pci_init_hw(struct rtsx_pcr *pcr)
+ 			return err;
+ 	}
+
+-	if (pcr->aspm_mode == ASPM_MODE_REG) {
++	if (pcr->aspm_mode == ASPM_MODE_REG)
+ 		rtsx_pci_write_register(pcr, ASPM_FORCE_CTL, 0x30, 0x30);
+-		rtsx_pci_write_register(pcr, PETXCFG,
+-				FORCE_CLKREQ_DELINK_MASK, FORCE_CLKREQ_HIGH);
+-	}
+
+ 	/* No CD interrupt if probing driver with card inserted.
+ 	 * So we need to initialize pcr->card_exist here.
 diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
 index b7c65193e786..fd55846ced2b 100644
 --- a/drivers/pci/quirks.c
@@ -1139,10 +1261,10 @@ index b7c65193e786..fd55846ced2b 100644
   * Intersil/Techwell TW686[4589]-based video capture cards have an empty (zero)
   * class code.  Fix it.
 diff --git a/drivers/usb/core/hub.c b/drivers/usb/core/hub.c
-index 97a0f8faea6e..d837548d2024 100644
+index 8a576326b359..c91f5bd30e3d 100644
 --- a/drivers/usb/core/hub.c
 +++ b/drivers/usb/core/hub.c
-@@ -5734,6 +5734,13 @@ static void hub_event(struct work_struct *work)
+@@ -5790,6 +5790,13 @@ static void hub_event(struct work_struct *work)
  			(u16) hub->change_bits[0],
  			(u16) hub->event_bits[0]);
 
@@ -1225,10 +1347,10 @@ index 571d1a6e1b74..8f786e38de3f 100644
  enum efi_secureboot_mode efi_get_secureboot_mode(efi_get_variable_t *get_var)
  {
 diff --git a/include/linux/lsm_hook_defs.h b/include/linux/lsm_hook_defs.h
-index 6bb55e61e8e8..3bf124aca5ff 100644
+index fb9f5f00a778..e97742229b18 100644
 --- a/include/linux/lsm_hook_defs.h
 +++ b/include/linux/lsm_hook_defs.h
-@@ -403,6 +403,8 @@ LSM_HOOK(void, LSM_RET_VOID, bpf_prog_free_security, struct bpf_prog_aux *aux)
+@@ -404,6 +404,8 @@ LSM_HOOK(void, LSM_RET_VOID, bpf_prog_free_security, struct bpf_prog_aux *aux)
  #endif /* CONFIG_BPF_SYSCALL */
 
  LSM_HOOK(int, 0, locked_down, enum lockdown_reason what)
@@ -1262,10 +1384,10 @@ index ab7eea01ab42..fff7c5f737fc 100644
 
  int rmi_register_transport_device(struct rmi_transport_dev *xport);
 diff --git a/include/linux/security.h b/include/linux/security.h
-index e2734e9e44d5..52344c344e7a 100644
+index 274c75fa2e27..f22f218de6f1 100644
 --- a/include/linux/security.h
 +++ b/include/linux/security.h
-@@ -482,6 +482,7 @@ int security_inode_notifysecctx(struct inode *inode, void *ctx, u32 ctxlen);
+@@ -483,6 +483,7 @@ int security_inode_notifysecctx(struct inode *inode, void *ctx, u32 ctxlen);
  int security_inode_setsecctx(struct dentry *dentry, void *ctx, u32 ctxlen);
  int security_inode_getsecctx(struct inode *inode, void **ctx, u32 *ctxlen);
  int security_locked_down(enum lockdown_reason what);
@@ -1273,7 +1395,7 @@ index e2734e9e44d5..52344c344e7a 100644
  #else /* CONFIG_SECURITY */
 
  static inline int call_blocking_lsm_notifier(enum lsm_event event, void *data)
-@@ -1388,6 +1389,10 @@ static inline int security_locked_down(enum lockdown_reason what)
+@@ -1394,6 +1395,10 @@ static inline int security_locked_down(enum lockdown_reason what)
  {
  	return 0;
  }
@@ -1466,10 +1588,10 @@ index 68d19632aeb7..ef348935b6ff 100644
 
  static int __init lockdown_lsm_init(void)
 diff --git a/security/security.c b/security/security.c
-index d5ff7ff45b77..ac7d177a5fea 100644
+index 521f74e77dd1..c2d530463f53 100644
 --- a/security/security.c
 +++ b/security/security.c
-@@ -5167,6 +5167,18 @@ int security_locked_down(enum lockdown_reason what)
+@@ -5181,6 +5181,18 @@ int security_locked_down(enum lockdown_reason what)
  }
  EXPORT_SYMBOL(security_locked_down);
 
