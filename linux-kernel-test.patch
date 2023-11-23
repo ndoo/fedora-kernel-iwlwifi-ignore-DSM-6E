@@ -1,0 +1,20 @@
+diff --git a/drivers/net/wireless/intel/iwlwifi/mvm/fw.c b/drivers/net/wireless/intel/iwlwifi/mvm/fw.c
+index 1d5ee4330..ab182a1f8 100644
+--- a/drivers/net/wireless/intel/iwlwifi/mvm/fw.c
++++ b/drivers/net/wireless/intel/iwlwifi/mvm/fw.c
+@@ -1229,13 +1229,13 @@ static void iwl_mvm_lari_cfg(struct iwl_mvm *mvm)
+ 				   &iwl_guid, &value);
+ 	if (!ret)
+ 		cmd.chan_state_active_bitmap = cpu_to_le32(value);
+-
++/*
+ 	ret = iwl_acpi_get_dsm_u32(mvm->fwrt.dev, 0,
+ 				   DSM_FUNC_ENABLE_6E,
+ 				   &iwl_guid, &value);
+ 	if (!ret)
+ 		cmd.oem_uhb_allow_bitmap = cpu_to_le32(value);
+-
++*/
+ 	ret = iwl_acpi_get_dsm_u32(mvm->fwrt.dev, 0,
+ 				   DSM_FUNC_FORCE_DISABLE_CHANNELS,
+ 				   &iwl_guid, &value);
